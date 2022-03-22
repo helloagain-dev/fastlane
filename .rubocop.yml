@@ -301,6 +301,7 @@ Lint/IsStringUsage:
     - 'deliver/**/*'
     - 'gym/**/*'
     - 'match/**/*'
+    - 'precheck/**/*'
     - 'screengrab/**/*'
     - 'supply/**/*'
 

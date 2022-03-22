@@ -9,11 +9,16 @@ require_relative 'module'
 require_relative 'storage'
 require_relative 'encryption'
 
+require 'tempfile'
+require 'base64'
+
 module Match
+  # rubocop:disable Metrics/ClassLength
   class Nuke
     attr_accessor :params
     attr_accessor :type
 
+    attr_accessor :safe_remove_certs
     attr_accessor :certs
     attr_accessor :profiles
     attr_accessor :files
@@ -66,7 +71,10 @@ module Match
                                          hide_keys: [:app_identifier],
                                              title: "Summary for match nuke #{Fastlane::VERSION}")
 
+      self.safe_remove_certs = params[:safe_remove_certs] || false
+
       prepare_list
+      filter_by_cert
       print_tables
 
       if params[:readonly]
@@ -76,11 +84,13 @@ module Match
       if (self.certs + self.profiles + self.files).count > 0
         unless params[:skip_confirmation]
           UI.error("---")
-          UI.error("Are you sure you want to completely delete and revoke all the")
-          UI.error("certificates and provisioning profiles listed above? (y/n)")
+          remove_or_revoke_message = self.safe_remove_certs ? "remove" : "revoke"
+          UI.error("Are you sure you want to completely delete and #{remove_or_revoke_message} all the")
+          UI.error("certificates and delete provisioning profiles listed above? (y/n)")
           UI.error("Warning: By nuking distribution, both App Store and Ad Hoc profiles will be deleted") if type == "distribution"
           UI.error("Warning: The :app_identifier value will be ignored - this will delete all profiles for all your apps!") if had_app_identifier
           UI.error("---")
+          print_safe_remove_certs_hint
         end
         if params[:skip_confirmation] || UI.confirm("Do you really want to nuke everything listed above?")
           nuke_it_now!
@@ -114,10 +124,12 @@ module Match
       if Spaceship::ConnectAPI.client.in_house? && (type == "distribution" || type == "enterprise")
         UI.error("---")
         UI.error("⚠️ Warning: This seems to be an Enterprise account!")
-        UI.error("By nuking your account's distribution, all your apps deployed via ad-hoc will stop working!") if type == "distribution"
-        UI.error("By nuking your account's enterprise, all your in-house apps will stop working!") if type == "enterprise"
+        unless self.safe_remove_certs
+          UI.error("By nuking your account's distribution, all your apps deployed via ad-hoc will stop working!") if type == "distribution"
+          UI.error("By nuking your account's enterprise, all your in-house apps will stop working!") if type == "enterprise"
+        end
         UI.error("---")
-
+        print_safe_remove_certs_hint
         UI.user_error!("Enterprise account nuke cancelled") unless UI.confirm("Do you really want to nuke your Enterprise account?")
       end
     end
@@ -139,7 +151,7 @@ module Match
         types = profile_types(prov_type)
         # Filtering on 'profileType' seems to be undocumented as of 2020-07-30
         # but works on both web session and official API
-        self.profiles += Spaceship::ConnectAPI::Profile.all(filter: { profileType: types.join(",") })
+        self.profiles += Spaceship::ConnectAPI::Profile.all(filter: { profileType: types.join(",") }, includes: "certificates")
       end
 
       # Gets the main and additional cert types
@@ -163,7 +175,7 @@ module Match
         keys += self.storage.list_files(file_name: ct.to_s, file_ext: "p12")
       end
 
-      # Finds all the iOS and macOS profofiles in the file storage
+      # Finds all the iOS and macOS profiles in the file storage
       profiles = []
       prov_types.each do |prov_type|
         profiles += self.storage.list_files(file_name: prov_type.to_s, file_ext: "mobileprovision")
@@ -171,6 +183,78 @@ module Match
       end
 
       self.files = certs + keys + profiles
+    end
+
+    def filter_by_cert
+      # Force will continue to revoke and delete all certificates and profiles
+      return if self.params[:force] || !UI.interactive?
+      return if self.certs.count < 2
+
+      # Print table showing certificates that can be revoked
+      puts("")
+      rows = self.certs.each_with_index.collect do |cert, i|
+        cert_expiration = cert.expiration_date.nil? ? "Unknown" : Time.parse(cert.expiration_date).strftime("%Y-%m-%d")
+        [i + 1, cert.name, cert.id, cert.class.to_s.split("::").last, cert_expiration]
+      end
+      puts(Terminal::Table.new({
+        title: "Certificates that can be #{removed_or_revoked_message}".green,
+        headings: ["Option", "Name", "ID", "Type", "Expires"],
+        rows: FastlaneCore::PrintTable.transform_output(rows)
+      }))
+      puts("")
+
+      UI.important("By default, all listed certificates and profiles will be nuked")
+      if UI.confirm("Do you want to only nuke specific certificates and their associated profiles?")
+        input_indexes = UI.input("Enter the \"Option\" number(s) from the table above? (comma-separated)").split(',')
+
+        # Get certificates from option indexes
+        self.certs = input_indexes.map do |index|
+          self.certs[index.to_i - 1]
+        end.compact
+
+        if self.certs.empty?
+          UI.user_error!("No certificates were selected based on option number(s) entered")
+        end
+
+        # Do profile selection logic
+        cert_ids = self.certs.map(&:id)
+        self.profiles = self.profiles.select do |profile|
+          profile_cert_ids = profile.certificates.map(&:id)
+          (cert_ids & profile_cert_ids).any?
+        end
+
+        # Do file selection logic
+        self.files = self.files.select do |f|
+          found = false
+
+          ext = File.extname(f)
+          filename = File.basename(f, ".*")
+
+          # Attempt to find cert based on filename
+          if ext == ".cer" || ext == ".p12"
+            found ||= self.certs.any? do |cert|
+              filename == cert.id.to_s
+            end
+          end
+
+          # Attempt to find profile matched on UUIDs in profile
+          if ext == ".mobileprovision" || ext == ".provisionprofile"
+            storage_uuid = FastlaneCore::ProvisioningProfile.uuid(f)
+
+            found ||= self.profiles.any? do |profile|
+              tmp_file = Tempfile.new
+              tmp_file.write(Base64.decode64(profile.profile_content))
+              tmp_file.close
+
+              # Compare profile uuid in storage to profile uuid on developer portal
+              portal_uuid = FastlaneCore::ProvisioningProfile.uuid(tmp_file.path)
+              storage_uuid == portal_uuid
+            end
+          end
+
+          found
+        end
+      end
     end
 
     # Print tables to ask the user
@@ -182,7 +266,7 @@ module Match
           [cert.name, cert.id, cert.class.to_s.split("::").last, cert_expiration]
         end
         puts(Terminal::Table.new({
-          title: "Certificates that are going to be revoked".green,
+          title: "Certificates that are going to be #{removed_or_revoked_message}".green,
           headings: ["Name", "ID", "Type", "Expires"],
           rows: FastlaneCore::PrintTable.transform_output(rows)
         }))
@@ -236,8 +320,14 @@ module Match
         UI.success("Successfully deleted profile")
       end
 
-      UI.header("Revoking #{self.certs.count} certificates...") unless self.certs.count == 0
+      removing_or_revoking_message = self.safe_remove_certs ? "Removing" : "Revoking"
+      UI.header("#{removing_or_revoking_message} #{self.certs.count} certificates...") unless self.certs.count == 0
       self.certs.each do |cert|
+        if self.safe_remove_certs
+          UI.message("Certificate '#{cert.name}' (#{cert.id}) will be removed from repository without revoking it")
+          next
+        end
+
         UI.message("Revoking certificate '#{cert.name}' (#{cert.id})...")
         begin
           cert.delete!
@@ -351,5 +441,17 @@ module Match
         raise "Unknown provisioning type '#{prov_type}'"
       end
     end
+
+    # Helpers for `safe_remove_certs`
+    def print_safe_remove_certs_hint
+      return if self.safe_remove_certs
+      UI.important("Hint: You can use --safe_remove_certs option to remove certificates")
+      UI.important("from repository without revoking them.")
+    end
+
+    def removed_or_revoked_message
+      self.safe_remove_certs ? "removed" : "revoked"
+    end
   end
+  # rubocop:disable Metrics/ClassLength
 end

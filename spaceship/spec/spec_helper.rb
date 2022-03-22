@@ -68,6 +68,7 @@ def before_each_spaceship
   TunesStubbing.itc_stub_promocodes_history
   TunesStubbing.itc_stub_supported_countries
 
+  ConnectAPIStubbing::Provisioning.stub_available_bundle_id_capabilities
   ConnectAPIStubbing::Provisioning.stub_bundle_ids
   ConnectAPIStubbing::Provisioning.stub_bundle_id
   ConnectAPIStubbing::Provisioning.stub_certificates
