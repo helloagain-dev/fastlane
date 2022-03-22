@@ -125,6 +125,7 @@ module Spaceship
 
       puts("")
       env_2fa_sms_default_phone_number = ENV["SPACESHIP_2FA_SMS_DEFAULT_PHONE_NUMBER"]
+      fastlane_2fa_code = ENV["FASTLANE_2FA_CODE"]
 
       if env_2fa_sms_default_phone_number
         raise Tunes::Error.new, "Environment variable SPACESHIP_2FA_SMS_DEFAULT_PHONE_NUMBER is set, but empty." if env_2fa_sms_default_phone_number.empty?
@@ -138,7 +139,7 @@ module Spaceship
         push_mode = push_mode_from_number(response.body["trustedPhoneNumbers"], phone_number)
         # don't request sms if no trusted devices and env default is the only trusted number,
         # code was automatically sent
-        should_request_code = !sms_automatically_sent(response)
+        should_request_code = !sms_automatically_sent(response) && !fastlane_2fa_code
         code_type = 'phone'
         body = request_two_factor_code_from_phone(phone_id, phone_number, code_length, push_mode, should_request_code)
       elsif sms_automatically_sent(response) # sms fallback, code was automatically sent
@@ -197,8 +198,10 @@ module Spaceship
 
         if ex.to_s.include?("verification code") # to have a nicer output
           puts("Error: Incorrect verification code")
+          puts("Make sure that FASTLANE_2FA_CODE is set and run spaceauth again.")
           depth += 1
-          return handle_two_factor(response, depth)
+          # return handle_two_factor(response, depth)
+          raise ex
         end
 
         raise ex
@@ -225,6 +228,12 @@ module Spaceship
 
     # extracted into its own method for testing
     def ask_for_2fa_code(text)
+      fastlane_2fa_code = ENV["FASTLANE_2FA_CODE"]
+      if fastlane_2fa_code
+        puts("Using 2fa code from FASTLANE_2FA_CODE environment variable: " + fastlane_2fa_code)
+        return fastlane_2fa_code
+      end
+
       ask(text)
     end
 
