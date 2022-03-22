@@ -259,7 +259,6 @@ module Fastlane
           FastlaneCore::ConfigItem.new(key: :package,
                                        env_name: 'FL_NOTARIZE_PACKAGE',
                                        description: 'Path to package to notarize, e.g. .app bundle or disk image',
-                                       is_string: true,
                                        verify_block: proc do |value|
                                          UI.user_error!("Could not find package at '#{value}'") unless File.exist?(value)
                                        end),
@@ -286,8 +285,7 @@ module Fastlane
           FastlaneCore::ConfigItem.new(key: :bundle_id,
                                        env_name: 'FL_NOTARIZE_BUNDLE_ID',
                                        description: 'Bundle identifier to uniquely identify the package',
-                                       optional: true,
-                                       is_string: true),
+                                       optional: true),
           FastlaneCore::ConfigItem.new(key: :username,
                                        env_name: 'FL_NOTARIZE_USERNAME',
                                        description: 'Apple ID username',
