@@ -218,14 +218,14 @@ module Spaceship
 
         case response.status.to_i
         when 401
-          raise UnauthorizedAccessError, format_errors(response) if response && (response.body || {})['errors']
+          raise UnauthorizedAccessError, format_errors(response)
         when 403
-          error = (response.body['errors'] || []).first || {}
+          error = (body['errors'] || []).first || {}
           error_code = error['code']
           if error_code == "FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED"
-            raise ProgramLicenseAgreementUpdated, format_errors(response) if response && (response.body || {})['errors']
+            raise ProgramLicenseAgreementUpdated, format_errors(response)
           else
-            raise AccessForbiddenError, format_errors(response) if response && (response.body || {})['errors']
+            raise AccessForbiddenError, format_errors(response)
           end
         when 502
           # Issue - https://github.com/fastlane/fastlane/issues/19264
@@ -297,7 +297,23 @@ module Spaceship
         #   ]
         # }
 
-        return response.body['errors'].map do |error|
+        # Membership expired
+        # {
+        #   "errors" : [
+        #     {
+        #       "id" : "UUID",
+        #       "status" : "403",
+        #       "code" : "FORBIDDEN_ERROR",
+        #       "title" : "This request is forbidden for security reasons",
+        #       "detail" : "Team ID: 'ID' is not associated with an active membership. To check your teams membership status, sign in your account on the developer website. https://developer.apple.com/account/"
+        #     }
+        #   ]
+        # }
+
+        body = response.body.empty? ? {} : response.body
+        body = JSON.parse(body) if body.kind_of?(String)
+
+        formatted_errors = (body['errors'] || []).map do |error|
           messages = [[error['title'], error['detail'], error.dig("source", "pointer")].compact.join(" - ")]
 
           meta = error["meta"] || {}
@@ -307,6 +323,12 @@ module Spaceship
             [[associated_error["title"], associated_error["detail"]].compact.join(" - ")]
           end
         end.flatten.join("\n")
+
+        if formatted_errors.empty?
+          formatted_errors << "Unknown error"
+        end
+
+        return formatted_errors
       end
 
       private

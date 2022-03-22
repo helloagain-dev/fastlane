@@ -47,38 +47,6 @@ If the above doesn't help, please [submit an issue](https://github.com/fastlane/
 </a>
 <h4 align='center'><a href='https://twitter.com/lmirosevic'>Luka Mirosevic</a></h4>
 </td>
-<td id='max-ott'>
-<a href='https://github.com/max-ott'>
-<img src='https://github.com/max-ott.png' width='140px;'>
-</a>
-<h4 align='center'><a href='https://twitter.com/ott_max'>Max Ott</a></h4>
-</td>
-<td id='helmut-januschka'>
-<a href='https://github.com/hjanuschka'>
-<img src='https://github.com/hjanuschka.png' width='140px;'>
-</a>
-<h4 align='center'><a href='https://twitter.com/hjanuschka'>Helmut Januschka</a></h4>
-</td>
-<td id='manu-wallner'>
-<a href='https://github.com/milch'>
-<img src='https://github.com/milch.png' width='140px;'>
-</a>
-<h4 align='center'><a href='https://twitter.com/acrooow'>Manu Wallner</a></h4>
-</td>
-</tr>
-<tr>
-<td id='luka-mirosevic'>
-<a href='https://github.com/lmirosevic'>
-<img src='https://github.com/lmirosevic.png' width='140px;'>
-</a>
-<h4 align='center'><a href='https://twitter.com/lmirosevic'>Luka Mirosevic</a></h4>
-</td>
-<td id='aaron-brager'>
-<a href='https://github.com/getaaron'>
-<img src='https://github.com/getaaron.png' width='140px;'>
-</a>
-<h4 align='center'><a href='https://twitter.com/getaaron'>Aaron Brager</a></h4>
-</td>
 <td id='felix-krause'>
 <a href='https://github.com/KrauseFx'>
 <img src='https://github.com/KrauseFx.png' width='140px;'>
