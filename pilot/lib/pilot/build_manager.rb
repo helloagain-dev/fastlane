@@ -16,7 +16,12 @@ module Pilot
       should_login_in_start = options[:apple_id].nil?
       start(options, should_login: should_login_in_start)
 
-      UI.user_error!("No ipa file given") unless config[:ipa]
+      UI.user_error!("No ipa or pkg file given") if config[:ipa].nil? && config[:pkg].nil?
+
+      if config[:ipa] && config[:pkg]
+        UI.important("WARNING: Both `ipa` and `pkg` options are defined either explicitly or with default_value (build found in directory)")
+        UI.important("Uploading `ipa` is preferred by default. Set `app_platform` to `osx` to force uploading `pkg`")
+      end
 
       check_for_changelog_or_whats_new!(options)
 
@@ -25,17 +30,29 @@ module Pilot
       dir = Dir.mktmpdir
 
       platform = fetch_app_platform
-      package_path = FastlaneCore::IpaUploadPackageBuilder.new.generate(app_id: fetch_app_id,
-                                                                      ipa_path: options[:ipa],
+      ipa_path = options[:ipa]
+      if ipa_path && platform != 'osx'
+        asset_path = ipa_path
+        package_path = FastlaneCore::IpaUploadPackageBuilder.new.generate(app_id: fetch_app_id,
+                                                                      ipa_path: ipa_path,
                                                                   package_path: dir,
                                                                       platform: platform)
+      else
+        pkg_path = options[:pkg]
+        asset_path = pkg_path
+        package_path = FastlaneCore::PkgUploadPackageBuilder.new.generate(app_id: fetch_app_id,
+                                                                        pkg_path: pkg_path,
+                                                                    package_path: dir,
+                                                                        platform: platform)
+      end
 
       transporter = transporter_for_selected_team(options)
-      result = transporter.upload(package_path: package_path)
+      result = transporter.upload(package_path: package_path, asset_path: asset_path)
 
       unless result
         transporter_errors = transporter.displayable_errors
-        UI.user_error!("Error uploading ipa file: \n #{transporter_errors}")
+        file_type = platform == "osx" ? "pkg" : "ipa"
+        UI.user_error!("Error uploading #{file_type} file: \n #{transporter_errors}")
       end
 
       UI.success("Successfully uploaded the new binary to App Store Connect")
@@ -91,9 +108,12 @@ module Pilot
 
     def wait_for_build_processing_to_be_complete(return_when_build_appears = false)
       platform = fetch_app_platform
-      if config[:ipa]
+      if config[:ipa] && platform != "osx"
         app_version = FastlaneCore::IpaFileAnalyser.fetch_app_version(config[:ipa])
         app_build = FastlaneCore::IpaFileAnalyser.fetch_app_build(config[:ipa])
+      elsif config[:pkg]
+        app_version = FastlaneCore::PkgFileAnalyser.fetch_app_version(config[:pkg])
+        app_build = FastlaneCore::PkgFileAnalyser.fetch_app_build(config[:pkg])
       else
         app_version = config[:app_version]
         app_build = config[:build_number]
@@ -108,7 +128,8 @@ module Pilot
         timeout_duration: config[:wait_processing_timeout_duration],
         return_when_build_appears: return_when_build_appears,
         return_spaceship_testflight_build: false,
-        select_latest: config[:distribute_only]
+        select_latest: config[:distribute_only],
+        wait_for_build_beta_detail_processing: true
       )
 
       unless latest_build.app_version == app_version && latest_build.version == app_build
@@ -384,8 +405,8 @@ module Pilot
       return generic_transporter unless tunes_client.teams.count > 1
 
       begin
-        team = tunes_client.teams.find { |t| t['contentProvider']['contentProviderId'].to_s == tunes_client.team_id }
-        name = team['contentProvider']['name']
+        team = tunes_client.teams.find { |t| t['providerId'].to_s == tunes_client.team_id }
+        name = team['name']
         provider_id = generic_transporter.provider_ids[name]
         UI.verbose("Inferred provider id #{provider_id} for team #{name}.")
         return FastlaneCore::ItunesTransporter.new(options[:username], nil, false, provider_id)
@@ -402,7 +423,7 @@ module Pilot
       # This is where we could add a check to see if encryption is required and has been updated
       uploaded_build = set_export_compliance_if_needed(uploaded_build, options)
 
-      if options[:groups] || options[:distribute_external]
+      if options[:submit_beta_review] && (options[:groups] || options[:distribute_external])
         if uploaded_build.ready_for_beta_submission?
           uploaded_build.post_beta_app_review_submission
         else
@@ -561,7 +582,6 @@ module Pilot
       attributes[:autoNotifyEnabled] = info[:auto_notify_enabled] if info.key?(:auto_notify_enabled)
       build_beta_detail = build.build_beta_detail
 
-      # https://github.com/fastlane/fastlane/pull/16006
       if build_beta_detail
         Spaceship::ConnectAPI.patch_build_beta_details(build_beta_details_id: build_beta_detail.id, attributes: attributes)
       else

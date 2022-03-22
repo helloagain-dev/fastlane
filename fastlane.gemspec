@@ -22,31 +22,32 @@ Gem::Specification.new do |spec|
   spec.name          = "fastlane"
   spec.version       = Fastlane::VERSION
   # list of authors is regenerated and resorted on each release
-  spec.authors       = ["Satoshi Namai",
-                        "Jan Piotrowski",
-                        "Andrew McBurney",
-                        "Matthew Ellis",
-                        "Iulian Onofrei",
-                        "Kohki Miki",
-                        "Manu Wallner",
-                        "Daniel Jankowski",
-                        "Olivier Halligon",
-                        "Fumiya Nakamura",
-                        "Josh Holtz",
+  spec.authors       = ["Łukasz Grabowski",
+                        "Luka Mirosevic",
+                        "Max Ott",
                         "Danielle Tomlinson",
+                        "Andrew McBurney",
+                        "Jérôme Lacoste",
+                        "Manu Wallner",
+                        "Stefan Natchev",
+                        "Josh Holtz",
+                        "Fumiya Nakamura",
                         "Helmut Januschka",
                         "Jimmy Dee",
                         "Maksym Grebenets",
-                        "Manish Rathi",
-                        "Jorge Revuelta H",
-                        "Aaron Brager",
-                        "Max Ott",
-                        "Luka Mirosevic",
-                        "Joshua Liebowitz",
-                        "Jérôme Lacoste",
-                        "Felix Krause",
+                        "Daniel Jankowski",
                         "Roger Oba",
-                        "Stefan Natchev"]
+                        "Jorge Revuelta H",
+                        "Iulian Onofrei",
+                        "Aaron Brager",
+                        "Satoshi Namai",
+                        "Jan Piotrowski",
+                        "Olivier Halligon",
+                        "Matthew Ellis",
+                        "Joshua Liebowitz",
+                        "Felix Krause",
+                        "Manish Rathi",
+                        "Kohki Miki"]
 
   spec.email         = ["fastlane@krausefx.com"]
   spec.summary       = Fastlane::DESCRIPTION
@@ -54,7 +55,11 @@ Gem::Specification.new do |spec|
   spec.homepage      = "https://fastlane.tools"
   spec.license       = "MIT"
   spec.metadata      = {
-    "docs_url" => "https://docs.fastlane.tools"
+    "bug_tracker_uri" => "https://github.com/fastlane/fastlane/issues",
+    "changelog_uri" => "https://github.com/fastlane/fastlane/releases",
+    "documentation_uri" => "https://docs.fastlane.tools/",
+    "homepage_uri" => spec.homepage,
+    "source_code_uri" => "https://github.com/fastlane/fastlane"
   }
 
   spec.required_ruby_version = '>= 2.5'
@@ -75,6 +80,8 @@ Gem::Specification.new do |spec|
   spec.add_dependency('addressable', '>= 2.3', '< 3.0.0') # Support for URI templates
   spec.add_dependency('multipart-post', '~> 2.0.0') # Needed for uploading builds to appetize
   spec.add_dependency('word_wrap', '~> 1.0.0') # to add line breaks for tables with long strings
+
+  spec.add_dependency('optparse', '~> 0.1.1') # Used to parse options with Commander
 
   # TTY dependencies
   spec.add_dependency('tty-screen', '>= 0.6.3', '< 1.0.0') # detect the terminal width
@@ -102,7 +109,7 @@ Gem::Specification.new do |spec|
   spec.add_dependency('simctl', '~> 1.6.3') # Used for querying and interacting with iOS simulators
   spec.add_dependency('jwt', '>= 2.1.0', '< 3') # Used for generating authentication tokens for App Store Connect API
   spec.add_dependency('google-apis-playcustomapp_v1', '~> 0.1') # Google API Client to access Custom app Publishing API
-  spec.add_dependency('google-apis-androidpublisher_v3', '~> 0.1') # Google API Client to access Play Publishing API
+  spec.add_dependency('google-apis-androidpublisher_v3', '~> 0.3') # Google API Client to access Play Publishing API
   spec.add_dependency('google-cloud-storage', '~> 1.31') # Access Google Cloud Storage for match
   spec.add_dependency('emoji_regex', '>= 0.1', '< 4.0') # Used to scan for Emoji in the changelog
   spec.add_dependency('aws-sdk-s3', '~> 1.0') # Used for S3 storage in fastlane match

@@ -11,6 +11,10 @@ module Produce
       self.new.disable(options, args)
     end
 
+    def self.available_services(options, args)
+      self.new.available_services(options, args)
+    end
+
     def enable(options, _args)
       unless app
         UI.message("[DevCenter] App '#{Produce.config[:app_identifier]}' does not exist")
@@ -35,6 +39,17 @@ module Produce
       UI.success("Done! Disabled #{disabled} services.")
     end
 
+    def available_services(options, _args)
+      unless bundle_id
+        UI.message("[DevCenter] App '#{Produce.config[:app_identifier]}' does not exist")
+        return
+      end
+
+      UI.success("[DevCenter] App found '#{bundle_id.name}'")
+      UI.message("Fetching available services")
+      return Spaceship::ConnectAPI::Capabilities.all
+    end
+
     def valid_services_for(options)
       allowed_keys = [:access_wifi, :app_group, :apple_pay, :associated_domains, :auto_fill_credential, :data_protection, :game_center, :healthkit, :homekit,
                       :hotspot, :icloud, :in_app_purchase, :inter_app_audio, :multipath, :network_extension,
@@ -49,11 +64,12 @@ module Produce
 
       if options.access_wifi
         UI.message("\tAccess WiFi")
-        if on
-          app.update_service(Spaceship.app_service.access_wifi.on)
-        else
-          app.update_service(Spaceship.app_service.access_wifi.off)
-        end
+        bundle_id.update_capability(ACCESS_WIFI_INFORMATION, enabled: on)
+      end
+
+      if options.app_attest
+        UI.message("\tApp Attest")
+        bundle_id.update_capability(APP_ATTEST, enabled: on)
       end
 
       if options.app_group

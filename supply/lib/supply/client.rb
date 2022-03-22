@@ -162,7 +162,46 @@ module Supply
     def commit_current_edit!
       ensure_active_edit!
 
-      call_google_api { client.commit_edit(current_package_name, current_edit.id) }
+      call_google_api do
+        begin
+          client.commit_edit(
+            current_package_name,
+            current_edit.id,
+            changes_not_sent_for_review: Supply.config[:changes_not_sent_for_review]
+          )
+        rescue Google::Apis::ClientError => e
+          unless Supply.config[:rescue_changes_not_sent_for_review]
+            raise
+          end
+
+          error = begin
+                    JSON.parse(e.body)
+                  rescue
+                    nil
+                  end
+
+          if error
+            message = error["error"] && error["error"]["message"]
+          else
+            message = e.body
+          end
+
+          if message.include?("The query parameter changesNotSentForReview must not be set")
+            client.commit_edit(
+              current_package_name,
+              current_edit.id
+            )
+          elsif message.include?("Please set the query parameter changesNotSentForReview to true")
+            client.commit_edit(
+              current_package_name,
+              current_edit.id,
+              changes_not_sent_for_review: true
+            )
+          else
+            raise
+          end
+        end
+      end
 
       self.current_edit = nil
       self.current_package_name = nil
@@ -227,14 +266,9 @@ module Supply
       filtered_tracks = tracks.select { |t| !t.releases.nil? && t.releases.any? { |r| r.name == version } }
 
       if filtered_tracks.length > 1
-        # Production track takes precedence if version is present in multiple tracks
+        # Prefer tracks in production, beta, alpha, internal order
         # E.g.: A release might've been promoted from Alpha/Beta track. This means the release will be present in two or more tracks
-        if filtered_tracks.any? { |t| t.track == Supply::Tracks::DEFAULT }
-          filtered_tracks = filtered_tracks.select { |t| t.track == Supply::Tracks::DEFAULT }
-        else
-          # E.g.: A release might be in both Alpha & Beta (not sure if this is possible, just catching if it ever happens), giving Beta precedence.
-          filtered_tracks = filtered_tracks.select { |t| t.track == Supply::Tracks::BETA }
-        end
+        filtered_tracks = filtered_tracks.sort_by { |t| Supply::Tracks::DEFAULTS.index(t.track) || Float::INFINITY }
       end
 
       filtered_track = filtered_tracks.first
@@ -247,10 +281,10 @@ module Supply
 
       filtered_release = filtered_track.releases.first { |r| !r.name.nil? && r.name == version }
 
-      # Since we can release on Alpha/Beta without release notes.
+      # Since we can release on Internal/Alpha/Beta without release notes.
       if filtered_release.release_notes.nil?
-        UI.user_error!("Version '#{version}' for '#{current_package_name}' does not seem to have any release notes. Nothing to download.")
-        return nil
+        UI.message("Version '#{version}' for '#{current_package_name}' does not seem to have any release notes. Nothing to download.")
+        return []
       end
 
       return filtered_release.release_notes.map do |row|

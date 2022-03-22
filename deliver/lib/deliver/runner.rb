@@ -10,6 +10,7 @@ require_relative 'submit_for_review'
 require_relative 'upload_price_tier'
 require_relative 'upload_metadata'
 require_relative 'upload_screenshots'
+require_relative 'sync_screenshots'
 require_relative 'detect_values'
 
 module Deliver
@@ -143,7 +144,14 @@ module Deliver
 
       # Commit
       upload_metadata.upload(options)
-      upload_screenshots.upload(options, screenshots)
+
+      if options[:sync_screenshots]
+        sync_screenshots = SyncScreenshots.new(app: Deliver.cache[:app], platform: Spaceship::ConnectAPI::Platform.map(options[:platform]))
+        sync_screenshots.sync(screenshots)
+      else
+        upload_screenshots.upload(options, screenshots)
+      end
+
       UploadPriceTier.new.upload(options)
     end
 
@@ -178,7 +186,7 @@ module Deliver
       end
 
       transporter = transporter_for_selected_team
-      result = transporter.upload(package_path: package_path)
+      result = transporter.upload(package_path: package_path, asset_path: upload_ipa || upload_pkg)
 
       unless result
         transporter_errors = transporter.displayable_errors
@@ -189,8 +197,25 @@ module Deliver
     def reject_version_if_possible
       app = Deliver.cache[:app]
       platform = Spaceship::ConnectAPI::Platform.map(options[:platform])
-      if app.reject_version_if_possible!(platform: platform)
-        UI.success("Successfully rejected previous version!")
+
+      submission = app.get_in_progress_review_submission(platform: platform)
+      if submission
+        submission.cancel_submission
+        UI.message("Review submission cancellation has been requested")
+
+        # An app version won't get removed from review instantly
+        # Polling until app version has a state of DEVELOPER_REJECT
+        loop do
+          version = app.get_edit_app_store_version(platform: platform)
+          if version.app_store_state == Spaceship::ConnectAPI::AppStoreVersion::AppStoreState::DEVELOPER_REJECTED
+            break
+          end
+
+          UI.message("Waiting for cancellation to take effect...")
+          sleep(15)
+        end
+
+        UI.success("Successfully cancelled previous submission!")
       end
     end
 
