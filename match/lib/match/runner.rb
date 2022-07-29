@@ -48,11 +48,13 @@ module Match
         google_cloud_bucket_name: params[:google_cloud_bucket_name].to_s,
         google_cloud_keys_file: params[:google_cloud_keys_file].to_s,
         google_cloud_project_id: params[:google_cloud_project_id].to_s,
+        skip_google_cloud_account_confirmation: params[:skip_google_cloud_account_confirmation],
         s3_region: params[:s3_region],
         s3_access_key: params[:s3_access_key],
         s3_secret_access_key: params[:s3_secret_access_key],
         s3_bucket: params[:s3_bucket],
         s3_object_prefix: params[:s3_object_prefix],
+        gitlab_project: params[:gitlab_project],
         readonly: params[:readonly],
         username: params[:readonly] ? nil : params[:username], # only pass username if not readonly
         team_id: params[:team_id],
@@ -82,9 +84,9 @@ module Match
         app_identifiers = params[:app_identifier].to_s.split(/\s*,\s*/).uniq
       end
 
-      # sometimes we get an array with arrays, this is a bug. To unblock people using match, I suggest we flatten!
+      # sometimes we get an array with arrays, this is a bug. To unblock people using match, I suggest we flatten
       # then in the future address the root cause of https://github.com/fastlane/fastlane/issues/11324
-      app_identifiers.flatten!
+      app_identifiers = app_identifiers.flatten
 
       # Verify the App ID (as we don't want 'match' to fail at a later point)
       if spaceship
@@ -285,7 +287,10 @@ module Match
         FileUtils.cp(profile, params[:output_path])
       end
 
-      if spaceship && !spaceship.profile_exists(username: params[:username], uuid: uuid, platform: params[:platform])
+      if spaceship && !spaceship.profile_exists(type: prov_type,
+                                                username: params[:username],
+                                                uuid: uuid,
+                                                platform: params[:platform])
         # This profile is invalid, let's remove the local file and generate a new one
         File.delete(profile)
         # This method will be called again, no need to modify `files_to_commit`
@@ -303,6 +308,12 @@ module Match
                                                                                type: prov_type,
                                                                            platform: params[:platform]),
                              parsed["TeamIdentifier"].first)
+
+      cert_info = Utils.get_cert_info(parsed["DeveloperCertificates"].first.string).to_h
+      Utils.fill_environment(Utils.environment_variable_name_certificate_name(app_identifier: app_identifier,
+                                                                                        type: prov_type,
+                                                                                    platform: params[:platform]),
+                             cert_info["Common Name"])
 
       Utils.fill_environment(Utils.environment_variable_name_profile_name(app_identifier: app_identifier,
                                                                                     type: prov_type,
@@ -419,7 +430,12 @@ module Match
 
       return false unless portal_profile
 
-      profile_certs_count = portal_profile.fetch_all_certificates.count
+      # When a certificate expires (not revoked) provisioning profile stays valid.
+      # And if we regenerate certificate count will not differ:
+      #   * For portal certificates, we filter out the expired one but includes a new certificate;
+      #   * Profile still contains an expired certificate and is valid.
+      # Thus, we need to check the validity of profile certificates too.
+      profile_certs_count = portal_profile.fetch_all_certificates.select(&:valid?).count
 
       certificate_types =
         case platform
