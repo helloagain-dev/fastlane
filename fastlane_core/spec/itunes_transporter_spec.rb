@@ -5,6 +5,7 @@ describe FastlaneCore do
   let(:password) { "!> p@$s_-+=w'o%rd\"&#*<" }
   let(:email) { 'fabric.devtools@gmail.com' }
   let(:jwt) { '409jjl43j90ghjqoineio49024' }
+  let(:api_key) { { key_id: "TESTAPIK2HW", issuer_id: "11223344-1122-aabb-aabb-uuvvwwxxyyzz" } }
 
   describe FastlaneCore::ItunesTransporter do
     let(:random_uuid) { '2a912f38-5dbc-4fc3-a5b3-1bf184b2b021' }
@@ -12,22 +13,36 @@ describe FastlaneCore do
       allow(SecureRandom).to receive(:uuid).and_return(random_uuid)
     end
 
-    def shell_upload_command(provider_short_name: nil, transporter: nil, jwt: nil, use_asset_path: false)
+    def shell_upload_command(provider_short_name: nil, transporter: nil, jwt: nil, use_asset_path: false, username: email, input_pass: password, api_key: nil)
       upload_part = use_asset_path ? "-assetFile /tmp/#{random_uuid}.ipa" : "-f /tmp/my.app.id.itmsp"
 
-      escaped_password = password.shellescape
-      unless FastlaneCore::Helper.windows?
-        escaped_password = escaped_password.gsub("\\'") do
-          "'\"\\'\"'"
+      username = username if username != email
+      escaped_password = input_pass
+      unless escaped_password.nil?
+        escaped_password = escaped_password.shellescape
+        unless FastlaneCore::Helper.windows?
+          escaped_password = escaped_password.gsub("\\'") do
+            "'\"\\'\"'"
+          end
+          escaped_password = "'#{escaped_password}'"
         end
-        escaped_password = "'" + escaped_password + "'"
       end
       [
         '"' + FastlaneCore::Helper.transporter_path + '"',
         "-m upload",
-        ("-u #{email.shellescape}" if jwt.nil?),
-        ("-p #{escaped_password}" if jwt.nil?),
-        ("-jwt #{jwt}" unless jwt.nil?),
+        (if jwt.nil?
+           if api_key.nil?
+             if username.nil? || escaped_password.nil?
+               nil
+             else
+               "-u #{username.shellescape} -p #{escaped_password}"
+             end
+           else
+             "-apiIssuer #{api_key[:issuer_id]} -apiKey #{api_key[:key_id]}"
+           end
+         else
+           "-jwt #{jwt}"
+         end),
         upload_part,
         (transporter.to_s if transporter),
         "-k 100000",
@@ -87,9 +102,43 @@ describe FastlaneCore do
       [
         '"' + FastlaneCore::Helper.transporter_path + '"',
         "-m provider",
-        ('-u "fabric.devtools@gmail.com"' if jwt.nil?),
+        ('-u fabric.devtools@gmail.com' if jwt.nil?),
         ("-p #{escaped_password}" if jwt.nil?),
         ("-jwt #{jwt}" unless jwt.nil?)
+      ].compact.join(' ')
+    end
+
+    def altool_upload_command(api_key: nil, platform: "macos", provider_short_name: "")
+      use_api_key = !api_key.nil?
+      upload_part = "-f /tmp/my.app.id.itmsp"
+      escaped_password = password.shellescape
+
+      [
+        "xcrun altool",
+        "--upload-app",
+        ("-u #{email.shellescape}" unless use_api_key),
+        ("-p #{escaped_password}" unless use_api_key),
+        ("--apiKey #{api_key[:key_id]}" if use_api_key),
+        ("--apiIssuer #{api_key[:issuer_id]}" if use_api_key),
+        ("--asc-provider #{provider_short_name}" unless use_api_key || provider_short_name.to_s.empty?),
+        ("-t #{platform}"),
+        upload_part,
+        "-k 100000"
+      ].compact.join(' ')
+    end
+
+    def altool_provider_id_command(api_key: nil)
+      use_api_key = !api_key.nil?
+      escaped_password = password.shellescape
+
+      [
+        "xcrun altool",
+        "--list-providers",
+        ("-u #{email.shellescape}" unless use_api_key),
+        ("-p #{escaped_password}" unless use_api_key),
+        ("--apiKey #{api_key[:key_id]}" if use_api_key),
+        ("--apiIssuer #{api_key[:issuer_id]}" if use_api_key),
+        "--output-format json"
       ].compact.join(' ')
     end
 
@@ -109,8 +158,7 @@ describe FastlaneCore do
         ('com.apple.transporter.Application' if classpath),
         ("-jar #{FastlaneCore::Helper.transporter_java_jar_path.shellescape}" unless classpath),
         "-m upload",
-        ("-u #{email.shellescape}" if jwt.nil?),
-        ("-p #{password.shellescape}" if jwt.nil?),
+        ("-u #{email.shellescape} -p #{password.shellescape}" if jwt.nil?),
         ("-jwt #{jwt}" unless jwt.nil?),
         upload_part,
         (transporter.to_s if transporter),
@@ -134,8 +182,7 @@ describe FastlaneCore do
         ('com.apple.transporter.Application' if classpath),
         ("-jar #{FastlaneCore::Helper.transporter_java_jar_path.shellescape}" unless classpath),
         "-m verify",
-        ("-u #{email.shellescape}" if jwt.nil?),
-        ("-p #{password.shellescape}" if jwt.nil?),
+        ("-u #{email.shellescape} -p #{password.shellescape}" if jwt.nil?),
         ("-jwt #{jwt}" unless jwt.nil?),
         "-f /tmp/my.app.id.itmsp",
         (transporter.to_s if transporter),
@@ -158,8 +205,7 @@ describe FastlaneCore do
         ('com.apple.transporter.Application' if classpath),
         ("-jar #{FastlaneCore::Helper.transporter_java_jar_path.shellescape}" unless classpath),
         '-m lookupMetadata',
-        ("-u #{email.shellescape}" if jwt.nil?),
-        ("-p #{password.shellescape}" if jwt.nil?),
+        ("-u #{email.shellescape} -p #{password.shellescape}" if jwt.nil?),
         ("-jwt #{jwt}" unless jwt.nil?),
         '-apple_id my.app.id',
         '-destination /tmp',
@@ -181,8 +227,7 @@ describe FastlaneCore do
         "-classpath #{FastlaneCore::Helper.transporter_java_jar_path.shellescape}",
         'com.apple.transporter.Application',
         '-m provider',
-        ('-u fabric.devtools@gmail.com' if jwt.nil?),
-        ("-p #{password.shellescape}" if jwt.nil?),
+        ("-u fabric.devtools@gmail.com -p #{password.shellescape}" if jwt.nil?),
         ("-jwt #{jwt}" if jwt),
         '2>&1'
       ].compact.join(' ')
@@ -202,8 +247,7 @@ describe FastlaneCore do
         '-Dsun.net.http.retryPost=false',
         "-jar #{FastlaneCore::Helper.transporter_java_jar_path.shellescape}",
         "-m upload",
-        ("-u #{email.shellescape}" if jwt.nil?),
-        ("-p #{password.shellescape}" if jwt.nil?),
+        ("-u #{email.shellescape} -p #{password.shellescape}" if jwt.nil?),
         ("-jwt #{jwt}" unless jwt.nil?),
         upload_part,
         (transporter.to_s if transporter),
@@ -225,8 +269,7 @@ describe FastlaneCore do
         '-Dsun.net.http.retryPost=false',
         "-jar #{FastlaneCore::Helper.transporter_java_jar_path.shellescape}",
         "-m verify",
-        ("-u #{email.shellescape}" if jwt.nil?),
-        ("-p #{password.shellescape}" if jwt.nil?),
+        ("-u #{email.shellescape} -p #{password.shellescape}" if jwt.nil?),
         ("-jwt #{jwt}" unless jwt.nil?),
         "-f /tmp/my.app.id.itmsp",
         (transporter.to_s if transporter),
@@ -247,8 +290,7 @@ describe FastlaneCore do
         '-Dsun.net.http.retryPost=false',
         "-jar #{FastlaneCore::Helper.transporter_java_jar_path.shellescape}",
         '-m lookupMetadata',
-        ("-u #{email.shellescape}" if jwt.nil?),
-        ("-p #{password.shellescape}" if jwt.nil?),
+        ("-u #{email.shellescape} -p #{password.shellescape}" if jwt.nil?),
         ("-jwt #{jwt}" unless jwt.nil?),
         '-apple_id my.app.id',
         '-destination /tmp',
@@ -1107,16 +1149,94 @@ describe FastlaneCore do
       end
     end
 
+    context "with Xcode 14.x installed" do
+      before(:each) do
+        allow(FastlaneCore::Helper).to receive(:xcode_version).and_return('14.0')
+        allow(FastlaneCore::Helper).to receive(:mac?).and_return(true)
+        allow(FastlaneCore::Helper).to receive(:windows?).and_return(false)
+      end
+
+      context "with username and password" do
+        context "with default itms_path" do
+          before(:each) do
+            allow(FastlaneCore::Helper).to receive(:itms_path).and_return(nil)
+            stub_const('ENV', { 'FASTLANE_ITUNES_TRANSPORTER_PATH' => nil })
+          end
+          context "upload command generation" do
+            it 'generates a call to altool' do
+              transporter = FastlaneCore::ItunesTransporter.new(email, password, false, 'abcd123', altool_compatible_command: true)
+              expect(transporter.upload('my.app.id', '/tmp', package_path: '/tmp/my.app.id.itmsp', platform: "osx")).to eq(altool_upload_command(provider_short_name: 'abcd123'))
+            end
+          end
+
+          context "provider IDs command generation" do
+            it 'generates a call to altool' do
+              transporter = FastlaneCore::ItunesTransporter.new(email, password, false, 'abcd123', altool_compatible_command: true)
+              expect(transporter.provider_ids).to eq(altool_provider_id_command)
+            end
+          end
+        end
+
+        context "with user defined itms_path" do
+          before(:each) do
+            allow(FastlaneCore::Helper).to receive(:itms_path).and_return('/tmp')
+            stub_const('ENV', { 'FASTLANE_ITUNES_TRANSPORTER_PATH' => '/tmp' })
+          end
+          context "upload command generation" do
+            it 'generates a call to xcrun iTMSTransporter instead altool' do
+              transporter = FastlaneCore::ItunesTransporter.new(email, password, false, 'abcd123', altool_compatible_command: true)
+              expect(transporter.upload('my.app.id', '/tmp', platform: "osx")).to eq(java_upload_command(provider_short_name: 'abcd123', classpath: false))
+            end
+          end
+        end
+
+        after(:each) { ENV.delete("FASTLANE_ITUNES_TRANSPORTER_PATH") }
+      end
+
+      context "with api_key" do
+        context "with default itms_path" do
+          before(:each) do
+            allow(FastlaneCore::Helper).to receive(:itms_path).and_return(nil)
+            stub_const('ENV', { 'FASTLANE_ITUNES_TRANSPORTER_PATH' => nil })
+          end
+          context "upload command generation" do
+            it 'generates a call to altool' do
+              transporter = FastlaneCore::ItunesTransporter.new(email, password, false, 'abcd123', altool_compatible_command: true, api_key: api_key)
+              expected = Regexp.new("API_PRIVATE_KEYS_DIR=#{Regexp.escape(Dir.tmpdir)}.*\s#{Regexp.escape(altool_upload_command(api_key: api_key, provider_short_name: 'abcd123'))}")
+              expect(transporter.upload('my.app.id', '/tmp', platform: "osx")).to match(expected)
+            end
+          end
+
+          context "provider IDs command generation" do
+            it 'generates a call to altool' do
+              transporter = FastlaneCore::ItunesTransporter.new(email, password, false, 'abcd123', altool_compatible_command: true, api_key: api_key)
+              expected = Regexp.new("API_PRIVATE_KEYS_DIR=#{Regexp.escape(Dir.tmpdir)}.*\s#{Regexp.escape(altool_provider_id_command(api_key: api_key))}")
+              expect(transporter.provider_ids).to match(expected)
+            end
+          end
+        end
+      end
+    end
+
     describe "with `FASTLANE_ITUNES_TRANSPORTER_USE_SHELL_SCRIPT` set" do
       before(:each) do
         ENV["FASTLANE_ITUNES_TRANSPORTER_USE_SHELL_SCRIPT"] = "1"
+        allow(FastlaneCore::Helper).to receive(:itms_path).and_return('/tmp')
         allow(File).to receive(:exist?).with("C:/Program Files (x86)/itms").and_return(true) if FastlaneCore::Helper.windows?
       end
 
       describe "upload command generation" do
-        it 'generates a call to the shell script' do
+        let(:keys_parent_dir) { File.join(Dir.home, ".appstoreconnect") }
+
+        it 'generates a call to the shell script with user and password' do
           transporter = FastlaneCore::ItunesTransporter.new(email, password, false)
           expect(transporter.upload('my.app.id', '/tmp')).to eq(shell_upload_command)
+        end
+
+        it 'generates a call to the shell script with api key' do
+          transporter = FastlaneCore::ItunesTransporter.new(api_key: api_key)
+          expect(transporter.upload('my.app.id', '/tmp')).to eq(shell_upload_command(username: nil, input_pass: nil, api_key: api_key))
+          expect(Dir.empty?(keys_parent_dir)).to be_truthy if Dir.exist?(keys_parent_dir)
         end
       end
 
@@ -1139,6 +1259,7 @@ describe FastlaneCore do
 
     describe "with no special configuration" do
       before(:each) do
+        allow(FastlaneCore::Helper).to receive(:itms_path).and_return('/tmp')
         allow(File).to receive(:exist?).and_return(true) unless FastlaneCore::Helper.mac?
         ENV.delete("FASTLANE_ITUNES_TRANSPORTER_USE_SHELL_SCRIPT")
       end
@@ -1273,6 +1394,7 @@ describe FastlaneCore do
     describe "with simulated no-test environment" do
       before(:each) do
         allow(FastlaneCore::Helper).to receive(:test?).and_return(false)
+        allow(FastlaneCore::Helper).to receive(:itms_path).and_return('/tmp')
         @transporter = FastlaneCore::ItunesTransporter.new(email, password, false)
       end
 
@@ -1288,5 +1410,166 @@ describe FastlaneCore do
         end
       end
     end
+
+  end
+
+  describe FastlaneCore::AltoolTransporterExecutor do
+    let(:upload_cmd) { "xcrun altool --upload-app --apiKey #{api_key[:key_id]} --apiIssuer #{api_key[:issuer_id]} -t macos -f /tmp/my.app.id.itmsp -k 100000" }
+    let(:instance) { described_class.new }
+    describe "#execute" do
+      it "logs specific info about altool crash if exit code is -1" do
+        # remove test behavior, we actually want FastlanePty.spawn to be called here
+        allow(FastlaneCore::Helper).to receive(:test?).and_return(false)
+        # force the nil return of FastlanePty.spawn
+        allow(FastlaneCore::FastlanePty).to receive(:spawn).and_return(-1)
+        expect(instance.execute(upload_cmd, false)).to eq(false)
+        expect(instance.errors).to include(
+          "-1 indicates altool exited abnormally; try retrying (see https://github.com/fastlane/fastlane/issues/21535)"
+        )
+      end
+    end
+  end
+
+  describe "execute #build_credential_params on" do
+    let(:usr_arg) { nil }
+    let(:pass_arg) { nil }
+    let(:jwt_arg) { nil }
+    let(:api_key_arg) { nil }
+
+    shared_examples "build_credential_params" do
+      it do
+        command_line_param = transporter.build_credential_params(usr_arg, pass_arg, jwt_arg, api_key_arg)
+        expect(command_line_param).to eq(expected)
+      end
+    end
+
+    describe FastlaneCore::AltoolTransporterExecutor do
+      let(:transporter) { FastlaneCore::AltoolTransporterExecutor.new }
+
+      context "with use username and password" do
+        let(:usr_arg) { email }
+        let(:pass_arg) { password }
+        let(:expected) { "-u #{email.shellescape} -p #{password.shellescape}" }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with jwt" do
+        let(:jwt_arg) { jwt }
+        let(:expected) { nil }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with api key" do
+        let(:api_key_arg) { api_key }
+        let(:expected) { "--apiKey #{api_key[:key_id]} --apiIssuer #{api_key[:issuer_id]}" }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with user, pass and api_key " do
+        let(:usr_arg) { email }
+        let(:pass_arg) { password }
+        let(:api_key_arg) { api_key }
+        let(:expected) { "--apiKey #{api_key[:key_id]} --apiIssuer #{api_key[:issuer_id]}" } # api_key takes precedence
+
+        include_examples 'build_credential_params'
+      end
+
+    end
+
+    describe FastlaneCore::ShellScriptTransporterExecutor do
+      let(:transporter) { FastlaneCore::ShellScriptTransporterExecutor.new }
+
+      context "with no args" do
+        let(:expected) { nil }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with use username and password" do
+        let(:usr_arg) { email }
+        let(:pass_arg) { password }
+        let(:expected) { "-u #{email.shellescape} -p #{transporter.send(:shell_escaped_password, password)}" }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with jwt" do
+        let(:jwt_arg) { jwt }
+        let(:expected) { "-jwt #{jwt}" }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with api key" do
+        let(:api_key_arg) { api_key }
+        let(:expected) { "-apiIssuer #{api_key[:issuer_id]} -apiKey #{api_key[:key_id]}" }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with user, pass and jwt" do
+        let(:usr_arg) { email }
+        let(:pass_arg) { password }
+        let(:jwt_arg) { jwt }
+        let(:expected) { "-jwt #{jwt}" } # jwt takes precedence
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with user, pass and api key" do
+        let(:usr_arg) { email }
+        let(:pass_arg) { password }
+        let(:api_key_arg) { api_key }
+        let(:expected) { "-apiIssuer #{api_key[:issuer_id]} -apiKey #{api_key[:key_id]}" } # api_key takes precedence
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with jwt and api key" do
+        let(:jwt_arg) { jwt }
+        let(:api_key_arg) { api_key }
+        let(:expected) { "-apiIssuer #{api_key[:issuer_id]} -apiKey #{api_key[:key_id]}" } # api_key takes precedence
+
+        include_examples 'build_credential_params'
+      end
+    end
+
+    describe FastlaneCore::JavaTransporterExecutor do
+      let(:transporter) { FastlaneCore::JavaTransporterExecutor.new }
+
+      context "with no args" do
+        let(:expected) { nil }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with username and password" do
+        let(:usr_arg) { email }
+        let(:pass_arg) { password }
+        let(:expected) { "-u #{email.shellescape} -p #{password.shellescape}" }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with jwt" do
+        let(:jwt_arg) { jwt }
+        let(:expected) { "-jwt #{jwt}" }
+
+        include_examples 'build_credential_params'
+      end
+
+      context "with user, pass and jwt" do
+        let(:usr_arg) { email }
+        let(:pass_arg) { password }
+        let(:jwt_arg) { jwt }
+        let(:expected) { "-jwt #{jwt}" } # jwt takes precedence
+
+        include_examples 'build_credential_params'
+      end
+    end
+
   end
 end
